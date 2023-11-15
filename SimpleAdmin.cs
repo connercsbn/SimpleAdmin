@@ -30,14 +30,15 @@ public class SimpleAdmin : BasePlugin
     }
 
     public CCSPlayerController? TryParseUser(CommandInfo command)
-    { 
-        if (!Int32.TryParse(command.GetArg(1), out int userId))
-        {
-            command.ReplyToCommand("Couldn't find user by that id.");
-            command.ReplyToCommand($"Usage: {command.GetArg(0)} <user_id>");
-            return null;
-        };
-        return Utilities.GetPlayerFromUserid(userId);
+    {
+        if (Int32.TryParse(command.GetArg(1), out int userId))
+        { 
+            var user = Utilities.GetPlayerFromUserid(userId);
+            if (!user.IsBot && user.IsValid) return user;
+        }
+        command.ReplyToCommand("Couldn't find user by that id.");
+        command.ReplyToCommand($"Usage: {command.GetArg(0)} <user_id>");
+        return null;
     }
 
 

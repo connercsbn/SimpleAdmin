@@ -179,12 +179,16 @@ public class SimpleAdmin : BasePlugin
     }
     private BannedUser? IsUserBanned(CommandInfo command)
     {
-        string identifier = command.GetArg(1);
-        if (ulong.TryParse(identifier, out ulong numIdentifier))
+        var identifier = command.GetArg(1);
+        if (int.TryParse(identifier, out int userId))
+        { 
+            var player = Utilities.GetPlayerFromUserid(userId);
+            if (IsValidHuman(player)) return IsUserBanned(player.SteamID);
+        }
+        if (ulong.TryParse(identifier, out ulong steamId))
         {
-            var player = Utilities.GetPlayerFromUserid((int)numIdentifier);
-            if (player != null) return IsUserBanned(player.SteamID);
-            return IsUserBanned(numIdentifier);
+            var player = IsUserBanned(steamId);
+            if (player != null) return player;
         }
         return IsUserBanned(identifier);
     }

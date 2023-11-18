@@ -62,7 +62,7 @@ public class SimpleAdmin : BasePlugin
 
 
 
-    [RequiresPermissions("@css/root")]
+    [RequiresPermissions("@css/ban")]
     [CommandHelper(minArgs: 1, usage: "<user_id | username | steam id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
@@ -83,7 +83,7 @@ public class SimpleAdmin : BasePlugin
         command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username | steam_id>");
     } 
 
-    [RequiresPermissions("@css/root")]
+    [RequiresPermissions("@css/unban")]
     [CommandHelper(minArgs: 1, usage: "<steam id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_unban", "Unban a user")]
     public void OnCommandUnban(CCSPlayerController _, CommandInfo command)
@@ -97,7 +97,7 @@ public class SimpleAdmin : BasePlugin
         UnbanUser(bannedUser); 
     } 
 
-    [RequiresPermissions("@css/root")]
+    [RequiresPermissions("@css/kick")]
     [CommandHelper(minArgs: 1, usage: "<user_id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_kick", "Kick a user")]
     public void OnCommandKick(CCSPlayerController _, CommandInfo command)
@@ -110,6 +110,17 @@ public class SimpleAdmin : BasePlugin
         }
         Server.ExecuteCommand($"kickid {bannedUser.UserId}");
 
+    }
+    [ConsoleCommand("css_players", "Get a list of current players")]
+    public void OnCommandPlayers(CCSPlayerController _, CommandInfo command)
+    {
+        foreach (var player in Utilities.GetPlayers())
+        { 
+            if (IsValidHuman(player))
+            {
+                command.ReplyToCommand($"{player.UserId}: {player.PlayerName}");
+            }
+        }
     }
     public override void Load(bool hotReload) 
     {

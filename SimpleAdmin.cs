@@ -4,7 +4,6 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Data.Sqlite;
-using System.Data.Common;
 using System.Data;
 
 namespace SimpleAdmin;
@@ -18,20 +17,22 @@ public class SimpleAdmin : BasePlugin
 
     private void InitDatabase()
     {
-        using (SqliteConnection db = new (connectionString))
-        {
-            db.Open();
-            using SqliteCommand command = new();
-            command.Connection = db;
-            command.CommandText = "CREATE TABLE IF NOT EXISTS banned_users (" +
-                                  "steam_id UNSIGNED BIG INT PRIMARY KEY, " +
-                                  "username TEXT NOT NULL)";
-            command.ExecuteNonQuery();
-        }
+        using var db = new SqliteConnection(connectionString);
+        db.Open();
+        using SqliteCommand command = new();
+        command.Connection = db;
+        command.CommandText = "CREATE TABLE IF NOT EXISTS banned_users (" +
+                              "steam_id UNSIGNED BIG INT PRIMARY KEY, " +
+                              "username TEXT)";
+        command.ExecuteNonQuery();
         Server.PrintToConsole("Database initialized successfully.");
     }
 
-    // Try to get user from command line argument <user_id | username>
+    // Check arg(1) for the following, in order:
+        // 1. matching CCSPlayerController user_id (in server)
+        // 2. partially matching CCSPlayerController PlayerName (in server)
+        // 3. is a large integer, such that we can assume this is meant to be the SteamID 
+    // If any of the above works, the resulting info will be added to the banned_users database
     public CCSPlayerController? TryParseUser(CommandInfo command)
     {
         CCSPlayerController? user;
@@ -42,8 +43,6 @@ public class SimpleAdmin : BasePlugin
         }
         user = TryGetPlayerFromName(command.GetArg(1));
         if (IsValidHuman(user)) return user;
-        command.ReplyToCommand("Couldn't find this user.");
-        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username>");
         return null;
     }
 
@@ -64,14 +63,24 @@ public class SimpleAdmin : BasePlugin
 
 
     [RequiresPermissions("@css/root")]
-    [CommandHelper(minArgs: 1, usage: "<user_id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<user_id | username | steam id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
         CCSPlayerController? userToBan = TryParseUser(command);
-        if (userToBan == null) return;
-        BanUser(userToBan);
-        Server.ExecuteCommand($"kickid {userToBan.UserId} You have been banned from this server."); 
+        if (userToBan != null)
+        {
+            BanUser(new (userToBan));
+            Server.ExecuteCommand($"kickid {userToBan.UserId} You have been banned from this server.");
+            return;
+        }
+        if (command.GetArg(1).Length > 4 && Int64.TryParse(command.GetArg(1), out long steamId))
+        {
+            BanUser(new BannedUser { SteamID = steamId }); 
+            return;
+        }
+        command.ReplyToCommand("Couldn't find this user.");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username | steam_id>");
     } 
 
     [RequiresPermissions("@css/root")]
@@ -80,7 +89,11 @@ public class SimpleAdmin : BasePlugin
     public void OnCommandUnban(CCSPlayerController _, CommandInfo command)
     {
         BannedUser? bannedUser = IsUserBanned(command);
-        if (bannedUser == null) return;
+        if (bannedUser == null)
+        {
+            command.ReplyToCommand($"Couldn't identify banned user by identifier {command.GetArg(1)}");
+            return;
+        }
         UnbanUser(bannedUser); 
     } 
 
@@ -90,7 +103,11 @@ public class SimpleAdmin : BasePlugin
     public void OnCommandKick(CCSPlayerController _, CommandInfo command)
     {
         CCSPlayerController? bannedUser = TryParseUser(command);
-        if (bannedUser == null) return;
+        if (bannedUser == null)
+        {
+            command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+            return;
+        }
         Server.ExecuteCommand($"kickid {bannedUser.UserId}");
 
     }
@@ -108,48 +125,44 @@ public class SimpleAdmin : BasePlugin
             }
         });
     }
-    private void BanUser(CCSPlayerController user)
+    private void BanUser(BannedUser user)
     {
-        if (IsUserBanned(user.UserId) != null)
+        if (IsUserBanned(user.SteamID) != null)
         { 
             Server.PrintToConsole($"{user.PlayerName} is already banned.");
             return; 
         }
-        using (var db = new SqliteConnection(connectionString))
+        using var db = new SqliteConnection(connectionString);
+        db.Open();
+
+        var insertCommand = new SqliteCommand
         {
-            db.Open();
+            Connection = db,
+            CommandText = "INSERT INTO banned_users VALUES (@steam_id, @username);"
+        };
+        insertCommand.Parameters.AddWithValue("@steam_id", user.SteamID);
+        insertCommand.Parameters.AddWithValue("@username", user.PlayerName ?? (object)DBNull.Value);
 
-            var insertCommand = new SqliteCommand
-            {
-                Connection = db,
-                CommandText = "INSERT INTO banned_users VALUES (@steam_id, @username);"
-            };
-            insertCommand.Parameters.AddWithValue("@steam_id", user.SteamID);
-            insertCommand.Parameters.AddWithValue("@username", user.PlayerName);
-
-            if (insertCommand.ExecuteNonQuery() != 1)
-            {
-                throw new Exception($"Failed to ban user {user.PlayerName} (Steam ID: {user.SteamID})");
-            }
+        if (insertCommand.ExecuteNonQuery() != 1)
+        {
+            throw new Exception($"Failed to ban user {user.PlayerName} (Steam ID: {user.SteamID})");
         }
         Server.PrintToConsole($"{user.PlayerName} with Steam ID {user.SteamID} has been banned.");
     }
     private void UnbanUser(BannedUser user)
     {
-        using (var db = new SqliteConnection(connectionString))
-        { 
-            db.Open(); 
-            var deleteCommand = new SqliteCommand
-            {
-                Connection = db,
-                CommandText = "DELETE FROM banned_users WHERE steam_id = @steam_id"
-            };
-            deleteCommand.Parameters.AddWithValue("@steam_id", user.SteamID);
+        using var db = new SqliteConnection(connectionString);
+        db.Open();
+        var deleteCommand = new SqliteCommand
+        {
+            Connection = db,
+            CommandText = "DELETE FROM banned_users WHERE steam_id = @steam_id"
+        };
+        deleteCommand.Parameters.AddWithValue("@steam_id", user.SteamID);
 
-            if (deleteCommand.ExecuteNonQuery() != 1)
-            {
-                throw new Exception($"Failed to unban user {user.PlayerName} with Steam ID {user.SteamID}");
-            }
+        if (deleteCommand.ExecuteNonQuery() != 1)
+        {
+            throw new Exception($"Failed to unban user {user.PlayerName} with Steam ID {user.SteamID}");
         }
         Server.PrintToConsole($"User {user.PlayerName} with Steam ID {user.SteamID} has been unbanned.");
     }
@@ -167,7 +180,7 @@ public class SimpleAdmin : BasePlugin
         using var db = new SqliteConnection(connectionString);
         db.Open();
         var selectCommand = new SqliteCommand("SELECT * from banned_users WHERE username like @username", db);
-        selectCommand.Parameters.AddWithValue("@username", "%" + username + "%");
+        selectCommand.Parameters.AddWithValue("@username", $"%{username}%");
 
         int numResults = 0;
         BannedUser? user = null;
@@ -178,7 +191,6 @@ public class SimpleAdmin : BasePlugin
             {
                 if (numResults++ > 0) return null;
                 user = new BannedUser { SteamID = reader.GetInt64(0), PlayerName = reader.GetString(1) };
-                Server.PrintToConsole("found: " + user.PlayerName + " " + user.SteamID);
                 return user;
             }
         }
@@ -194,14 +206,14 @@ public class SimpleAdmin : BasePlugin
         using var reader = selectCommand.ExecuteReader();
         if (reader.Read())
         {
-            return new BannedUser { SteamID = reader.GetInt64(0), PlayerName = reader.GetString(1) };
+            return new BannedUser { SteamID = reader.GetInt64(0), PlayerName = reader.IsDBNull(1) ? null : reader.GetString(1) };
         }
         return null;
     } 
     class BannedUser
     {
         public long SteamID { get; set; }
-        public required string PlayerName { get; set; }
+        public string? PlayerName { get; set; }
 
         public BannedUser() { }
         public BannedUser(CCSPlayerController player) 

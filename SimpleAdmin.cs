@@ -9,7 +9,7 @@ using System.Data;
 namespace SimpleAdmin;
 public class SimpleAdmin : BasePlugin
 {
-    public override string ModuleName => "Simple Admin";
+    public override string ModuleName => "SimpleAdmin";
     public override string ModuleVersion => "0.0.1";
 
     private string? connectionString;
@@ -28,11 +28,6 @@ public class SimpleAdmin : BasePlugin
         Server.PrintToConsole("Database initialized successfully.");
     }
 
-    // Check arg(1) for the following, in order:
-        // 1. matching CCSPlayerController user_id (in server)
-        // 2. partially matching CCSPlayerController PlayerName (in server)
-        // 3. is a large integer, such that we can assume this is meant to be the SteamID 
-    // If any of the above works, the resulting info will be added to the banned_users database
     public CCSPlayerController? TryParseUser(CommandInfo command)
     {
         CCSPlayerController? user;
@@ -67,6 +62,9 @@ public class SimpleAdmin : BasePlugin
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
+        // Check arg(1) for the following, in order:
+        // 1. matching CCSPlayerController user_id (in server)
+        // 2. partially matching CCSPlayerController PlayerName (in server)
         CCSPlayerController? userToBan = TryParseUser(command);
         if (userToBan != null)
         {
@@ -74,9 +72,11 @@ public class SimpleAdmin : BasePlugin
             Server.ExecuteCommand($"kickid {userToBan.UserId} You have been banned from this server.");
             return;
         }
+        // 3. is a large integer, such that we can assume this is meant to be the SteamID 
+        // If any of the above works, the resulting info will be added to the banned_users database
         if (command.GetArg(1).Length > 4 && Int64.TryParse(command.GetArg(1), out long steamId))
         {
-            BanUser(new BannedUser { SteamID = steamId }); 
+            BanUser(new BannedUser { SteamID = (ulong)steamId }); 
             return;
         }
         command.ReplyToCommand("Couldn't find this user.");
@@ -129,7 +129,7 @@ public class SimpleAdmin : BasePlugin
         RegisterListener<Listeners.OnClientConnected>((slot) =>
         {
             CCSPlayerController newPlayer = Utilities.GetPlayerFromSlot(slot);
-            if (IsUserBanned(newPlayer.UserId) != null)
+            if (IsUserBanned(newPlayer.SteamID) != null)
             {
                 Server.ExecuteCommand($"kickid {newPlayer.UserId}");
                 Server.PrintToConsole($"Banned user {newPlayer.PlayerName} tried to join");
@@ -180,9 +180,11 @@ public class SimpleAdmin : BasePlugin
     private BannedUser? IsUserBanned(CommandInfo command)
     {
         string identifier = command.GetArg(1);
-        if (Int32.TryParse(identifier, out int userId))
+        if (ulong.TryParse(identifier, out ulong numIdentifier))
         {
-            return IsUserBanned(userId);
+            var player = Utilities.GetPlayerFromUserid((int)numIdentifier);
+            if (player != null) return IsUserBanned(player.SteamID);
+            return IsUserBanned(numIdentifier);
         }
         return IsUserBanned(identifier);
     }
@@ -201,13 +203,13 @@ public class SimpleAdmin : BasePlugin
             while (reader.Read())
             {
                 if (numResults++ > 0) return null;
-                user = new BannedUser { SteamID = reader.GetInt64(0), PlayerName = reader.GetString(1) };
+                user = new BannedUser { SteamID = (ulong)reader.GetInt64(0), PlayerName = reader.GetString(1) };
                 return user;
             }
         }
         return user;
     } 
-    private BannedUser? IsUserBanned(long? steamId)
+    private BannedUser? IsUserBanned(ulong? steamId)
     {
         using var db = new SqliteConnection(connectionString);
         db.Open();
@@ -217,19 +219,19 @@ public class SimpleAdmin : BasePlugin
         using var reader = selectCommand.ExecuteReader();
         if (reader.Read())
         {
-            return new BannedUser { SteamID = reader.GetInt64(0), PlayerName = reader.IsDBNull(1) ? null : reader.GetString(1) };
+            return new BannedUser { SteamID = (ulong)reader.GetInt64(0), PlayerName = reader.IsDBNull(1) ? null : reader.GetString(1) };
         }
         return null;
     } 
     class BannedUser
     {
-        public long SteamID { get; set; }
+        public ulong SteamID { get; set; }
         public string? PlayerName { get; set; }
 
         public BannedUser() { }
         public BannedUser(CCSPlayerController player) 
         {
-            SteamID = (long)player.SteamID;
+            SteamID = (ulong)player.SteamID;
             PlayerName = player.PlayerName;
         }
     }

@@ -28,16 +28,16 @@ public class SimpleAdmin : BasePlugin
         Server.PrintToConsole("Database initialized successfully.");
     }
 
-    public CCSPlayerController? TryParseUser(CommandInfo command)
+    public CCSPlayerController? TryParseUser(CommandInfo command, bool can_be_bot = false)
     {
         CCSPlayerController? user;
         if (Int32.TryParse(command.GetArg(1), out int userId))
-        { 
+        {
             user = Utilities.GetPlayerFromUserid(userId);
             if (IsValidHuman(user)) return user;
         }
-        user = TryGetPlayerFromName(command.GetArg(1));
-        if (IsValidHuman(user)) return user;
+        user = TryGetPlayerFromName(command.GetArg(1)); 
+        if (IsValidHuman(user) || can_be_bot) return user;
         return null;
     }
 
@@ -52,7 +52,7 @@ public class SimpleAdmin : BasePlugin
     }
     public bool IsValidHuman(CCSPlayerController? player)
     {
-        return player != null && player.IsValid && !player.IsBot; 
+        return player != null && player.IsValid && !player.IsBot;
     }
 
 
@@ -68,7 +68,7 @@ public class SimpleAdmin : BasePlugin
         CCSPlayerController? userToBan = TryParseUser(command);
         if (userToBan != null)
         {
-            BanUser(new (userToBan));
+            BanUser(new(userToBan));
             Server.ExecuteCommand($"kickid {userToBan.UserId} You have been banned from this server.");
             return;
         }
@@ -76,12 +76,26 @@ public class SimpleAdmin : BasePlugin
         // If any of the above works, the resulting info will be added to the banned_users database
         if (command.GetArg(1).Length > 4 && Int64.TryParse(command.GetArg(1), out long steamId))
         {
-            BanUser(new BannedUser { SteamID = (ulong)steamId }); 
+            BanUser(new BannedUser { SteamID = (ulong)steamId });
             return;
         }
         command.ReplyToCommand("Couldn't find this user.");
         command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username | steam_id>");
-    } 
+    }
+    [RequiresPermissions("@css/slay")]
+    [CommandHelper(minArgs: 1, usage: "<user_id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [ConsoleCommand("css_slay", "Kill a user")]
+    public void OnCommandSlay(CCSPlayerController _, CommandInfo command)
+    {
+        CCSPlayerController? userToBan = TryParseUser(command, true);
+        if (userToBan != null)
+        {
+            userToBan.PlayerPawn.Value.CommitSuicide(true, true);
+            return;
+        }
+        command.ReplyToCommand("Couldn't find this user.");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username>");
+    }
 
     [RequiresPermissions("@css/unban")]
     [CommandHelper(minArgs: 1, usage: "<steam id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
@@ -89,26 +103,28 @@ public class SimpleAdmin : BasePlugin
     public void OnCommandUnban(CCSPlayerController _, CommandInfo command)
     {
         BannedUser? bannedUser = IsUserBanned(command);
-        if (bannedUser == null)
+        if (bannedUser != null)
         {
-            command.ReplyToCommand($"Couldn't identify banned user by identifier {command.GetArg(1)}");
+            UnbanUser(bannedUser); 
             return;
         }
-        UnbanUser(bannedUser); 
+        command.ReplyToCommand($"Couldn't identify banned user by identifier {command.GetArg(1)}");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <steam_id | username>");
     } 
 
     [RequiresPermissions("@css/kick")]
-    [CommandHelper(minArgs: 1, usage: "<user_id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<user_id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_kick", "Kick a user")]
     public void OnCommandKick(CCSPlayerController _, CommandInfo command)
     {
         CCSPlayerController? bannedUser = TryParseUser(command);
-        if (bannedUser == null)
+        if (bannedUser != null)
         {
-            command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+            Server.ExecuteCommand($"kickid {bannedUser.UserId}");
             return;
         }
-        Server.ExecuteCommand($"kickid {bannedUser.UserId}");
+        command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username>");
 
     }
     [ConsoleCommand("css_players", "Get a list of current players")]

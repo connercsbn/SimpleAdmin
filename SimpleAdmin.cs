@@ -34,10 +34,10 @@ public class SimpleAdmin : BasePlugin
         if (Int32.TryParse(command.GetArg(1), out int userId))
         {
             user = Utilities.GetPlayerFromUserid(userId);
-            if (IsValidHuman(user)) return user;
+            if (IsValidPlayer(user, can_be_bot)) return user;
         }
         user = TryGetPlayerFromName(command.GetArg(1)); 
-        if (IsValidHuman(user) || can_be_bot) return user;
+        if (IsValidPlayer(user, can_be_bot)) return user;
         return null;
     }
 
@@ -50,9 +50,9 @@ public class SimpleAdmin : BasePlugin
         }
         return null;
     }
-    public bool IsValidHuman(CCSPlayerController? player)
+    public static bool IsValidPlayer(CCSPlayerController? player, bool can_be_bot = false)
     {
-        return player != null && player.IsValid && !player.IsBot;
+        return player != null && player.IsValid && (!player.IsBot || can_be_bot);
     }
 
 
@@ -132,7 +132,7 @@ public class SimpleAdmin : BasePlugin
     {
         foreach (var player in Utilities.GetPlayers())
         { 
-            if (IsValidHuman(player))
+            if (IsValidPlayer(player))
             {
                 command.ReplyToCommand($"{player.UserId}: {player.PlayerName}");
             }
@@ -199,7 +199,7 @@ public class SimpleAdmin : BasePlugin
         if (int.TryParse(identifier, out int userId))
         { 
             var player = Utilities.GetPlayerFromUserid(userId);
-            if (IsValidHuman(player)) return IsUserBanned(player.SteamID);
+            if (IsValidPlayer(player)) return IsUserBanned(player.SteamID);
         }
         if (ulong.TryParse(identifier, out ulong steamId))
         {

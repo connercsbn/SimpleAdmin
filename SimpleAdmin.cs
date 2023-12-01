@@ -4,8 +4,11 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Data.Sqlite;
+using CounterStrikeSharp.API.Core.Attributes;
 
 namespace SimpleAdmin;
+
+[MinimumApiVersion(87)]
 public class SimpleAdmin : BasePlugin
 {
     public override string ModuleName => "SimpleAdmin";
@@ -171,11 +174,6 @@ public class SimpleAdmin : BasePlugin
     private BannedUser? IsUserBanned(CommandInfo command)
     {
         var identifier = command.GetArg(1);
-        if (int.TryParse(identifier, out int userId))
-        { 
-            var player = Utilities.GetPlayerFromUserid(userId);
-            if (IsValidPlayer(player)) return IsUserBanned(player.SteamID);
-        }
         if (ulong.TryParse(identifier, out ulong steamId))
         {
             var player = IsUserBanned(steamId);
@@ -204,7 +202,7 @@ public class SimpleAdmin : BasePlugin
         }
         return user;
     } 
-    private BannedUser? IsUserBanned(ulong? steamId)
+    private BannedUser? IsUserBanned(ulong steamId)
     {
         using var db = new SqliteConnection(connectionString);
         db.Open();

@@ -4,7 +4,6 @@ using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Data.Sqlite;
-using System.Data;
 
 namespace SimpleAdmin;
 public class SimpleAdmin : BasePlugin
@@ -28,73 +27,45 @@ public class SimpleAdmin : BasePlugin
         Server.PrintToConsole("Database initialized successfully.");
     }
 
-    public CCSPlayerController? TryParseUser(CommandInfo command, bool can_be_bot = false)
-    {
-        CCSPlayerController? user;
-        if (Int32.TryParse(command.GetArg(1), out int userId))
-        {
-            user = Utilities.GetPlayerFromUserid(userId);
-            if (IsValidPlayer(user, can_be_bot)) return user;
-        }
-        user = TryGetPlayerFromName(command.GetArg(1)); 
-        if (IsValidPlayer(user, can_be_bot)) return user;
-        return null;
-    }
-
-    public CCSPlayerController? TryGetPlayerFromName(string name)
-    {
-        var results = Utilities.GetPlayers().Where(player => player.PlayerName.ToLower().Contains(name.ToLower()));
-        if (results.Count() == 1)
-        {
-            return results.ElementAt(0);
-        }
-        return null;
-    }
     public static bool IsValidPlayer(CCSPlayerController? player, bool can_be_bot = false)
     {
         return player != null && player.IsValid && (!player.IsBot || can_be_bot);
     }
 
-
-
     [RequiresPermissions("@css/ban")]
-    [CommandHelper(minArgs: 1, usage: "<user_id | username | steam id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<target | steam id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
-        // Check arg(1) for the following, in order:
-        // 1. matching CCSPlayerController user_id (in server)
-        // 2. partially matching CCSPlayerController PlayerName (in server)
-        CCSPlayerController? userToBan = TryParseUser(command);
-        if (userToBan != null)
+        var targetedUsers = command.GetArgTargetResult(1);
+        if (targetedUsers.Players.Count == 1)
         {
+            var userToBan = targetedUsers.Players.First();
             BanUser(new(userToBan));
-            Server.ExecuteCommand($"kickid {userToBan.UserId} You have been banned from this server.");
+            Server.ExecuteCommand($"kickid {userToBan.UserId}");
             return;
         }
-        // 3. is a large integer, such that we can assume this is meant to be the SteamID 
-        // If any of the above works, the resulting info will be added to the banned_users database
-        if (command.GetArg(1).Length > 4 && Int64.TryParse(command.GetArg(1), out long steamId))
-        {
-            BanUser(new BannedUser { SteamID = (ulong)steamId });
-            return;
+        var targetString = command.GetArg(1).TrimStart('#');
+        if (targetString.Length == 17 && ulong.TryParse(targetString, out ulong steamId))
+        { 
+            BanUser(new BannedUser { SteamID = steamId });
         }
-        command.ReplyToCommand("Couldn't find this user.");
-        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username | steam_id>");
+        command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id>");
     }
     [RequiresPermissions("@css/slay")]
     [CommandHelper(minArgs: 1, usage: "<user_id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_slay", "Kill a user")]
     public void OnCommandSlay(CCSPlayerController _, CommandInfo command)
     {
-        CCSPlayerController? userToBan = TryParseUser(command, true);
-        if (userToBan != null)
+        var target = command.GetArgTargetResult(1);
+        if (target.Players.Count > 0)
         {
-            userToBan.PlayerPawn.Value.CommitSuicide(true, true);
-            return;
+            target.Players.ForEach(player => player.PlayerPawn.Value?.CommitSuicide(true, true));
+            return; 
         }
-        command.ReplyToCommand("Couldn't find this user.");
-        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username>");
+        command.ReplyToCommand($"Couldn't find user(s) by identifier {command.GetArg(1)}");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target>");
     }
 
     [RequiresPermissions("@css/unban")]
@@ -117,14 +88,18 @@ public class SimpleAdmin : BasePlugin
     [ConsoleCommand("css_kick", "Kick a user")]
     public void OnCommandKick(CCSPlayerController _, CommandInfo command)
     {
-        CCSPlayerController? bannedUser = TryParseUser(command);
-        if (bannedUser != null)
-        {
-            Server.ExecuteCommand($"kickid {bannedUser.UserId}");
-            return;
+        var target = command.GetArgTargetResult(1);
+        if (target.Players.Count == 0)
+        { 
+            CCSPlayerController? userToKick = target.Players.First();
+            if (userToKick != null)
+            {
+                Server.ExecuteCommand($"kickid {userToKick.UserId}");
+                return;
+            }
         }
         command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
-        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <user_id | username>");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target>");
 
     }
     [ConsoleCommand("css_players", "Get a list of current players")]

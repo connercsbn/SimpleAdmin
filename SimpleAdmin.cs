@@ -6,6 +6,8 @@ using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
+using System.Data;
+using System.Runtime.InteropServices;
 
 namespace SimpleAdmin;
 
@@ -26,30 +28,30 @@ public class SimpleAdmin : BasePlugin
         command.Connection = db;
         command.CommandText = "CREATE TABLE IF NOT EXISTS banned_users (" +
                               "steam_id TEXT PRIMARY KEY, " +
-                              "username TEXT)";
+                              "username TEXT, " + 
+                              "minutes_banned INT, " +
+                              "timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
         command.ExecuteNonQuery();
 
         command.CommandText = "PRAGMA table_info(banned_users);";
-        string[,] expectedSchema = new string[2, 2]
+        string[,] expectedSchema = new string[4, 2]
         {
             { "steam_id", "TEXT" },
-            { "username", "TEXT" }
+            { "username", "TEXT" },
+            { "minutes_banned", "INT" },
+            { "timestamp", "TIMESTAMP" }
         };
 
         using SqliteDataReader reader = command.ExecuteReader();
-        int column = 0;
-        while (reader.Read()) 
+        int i = 0;
+        while (reader.Read())
         {
-            if (column >= expectedSchema.Length)
-            {
-                return false;
-            }
-            Logger.LogInformation($"{expectedSchema[column, 0]} {reader["name"]} {expectedSchema[column, 1]} {reader["type"]}");
-            if (expectedSchema[column, 0] != reader["name"].ToString() || expectedSchema[column, 1] != reader["type"].ToString())
-            {
-                return false;
-            }
-            column++;
+            if (expectedSchema[i, 0] != reader["name"].ToString() || expectedSchema[i, 1] != reader["type"].ToString()) return false;
+            i++;
+        }
+        if (i != expectedSchema.GetLength(0))
+        {
+            return false;
         }
 
 
@@ -63,7 +65,7 @@ public class SimpleAdmin : BasePlugin
     }
 
     [RequiresPermissions("@css/ban")]
-    [CommandHelper(minArgs: 1, usage: "<target | steam id>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<target | steam id> [minutes]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
@@ -73,7 +75,12 @@ public class SimpleAdmin : BasePlugin
         else if (targetedUsers.Count() == 1)
         {
             var userToBan = targetedUsers.First();
-            if (BanUser(new(userToBan))) Server.ExecuteCommand($"kickid {userToBan.UserId}");
+            ulong minutes = 0;
+            if (command.ArgCount > 2 && ulong.TryParse(command.GetArg(2), out ulong parsedMinutes))
+            {
+                minutes = parsedMinutes;
+            }
+            if (BanUser(new(userToBan), minutes)) Server.ExecuteCommand($"kickid {userToBan.UserId}");
             return;
         }
         var targetString = command.GetArg(1).TrimStart('#');
@@ -162,14 +169,20 @@ public class SimpleAdmin : BasePlugin
         RegisterListener<Listeners.OnClientConnected>((slot) =>
         {
             CCSPlayerController newPlayer = Utilities.GetPlayerFromSlot(slot);
-            if (IsUserBanned(newPlayer.SteamID) != null)
-            {
+            BannedUser? bannedUser = IsUserBanned(newPlayer.SteamID);
+            if (bannedUser != null)
+            { 
+                if (bannedUser.ServedTheirTime)
+                {
+                    UnbanUser(bannedUser);
+                    return;
+                }
                 Server.ExecuteCommand($"kickid {newPlayer.UserId}");
                 Logger.LogInformation($"Banned user {newPlayer.PlayerName} tried to join");
             }
         });
     }
-    private bool BanUser(BannedUser user)
+    private bool BanUser(BannedUser user, ulong minutes = 0)
     {
         if (IsUserBanned(user.SteamID) != null)
         { 
@@ -182,10 +195,11 @@ public class SimpleAdmin : BasePlugin
         var insertCommand = new SqliteCommand
         {
             Connection = db,
-            CommandText = "INSERT INTO banned_users VALUES (@steam_id, @username);"
+            CommandText = "INSERT INTO banned_users VALUES (@steam_id, @username, @minutes_banned, CURRENT_TIMESTAMP);"
         };
         insertCommand.Parameters.AddWithValue("@steam_id", user.SteamID);
         insertCommand.Parameters.AddWithValue("@username", user.PlayerName ?? (object)DBNull.Value);
+        insertCommand.Parameters.AddWithValue("@minutes_banned", minutes);
 
         if (insertCommand.ExecuteNonQuery() != 1)
         {
@@ -214,12 +228,12 @@ public class SimpleAdmin : BasePlugin
     private BannedUser? IsUserBanned(CommandInfo command)
     {
         var identifier = command.GetArg(1);
+        BannedUser? bannedUser = null;
         if (UInt64.TryParse(identifier, out UInt64 steamId))
         {
-            var player = IsUserBanned(steamId);
-            if (player != null) return player;
-        }
-        return IsUserBanned(identifier);
+            bannedUser = IsUserBanned(steamId);
+        } 
+        return bannedUser ?? IsUserBanned(identifier);
     }
     private BannedUser? IsUserBanned(string username)
     {
@@ -251,8 +265,19 @@ public class SimpleAdmin : BasePlugin
 
         using var reader = selectCommand.ExecuteReader();
         if (reader.Read())
-        {
-            return new BannedUser { SteamID = UInt64.Parse(reader.GetString(0)), PlayerName = reader.IsDBNull(1) ? null : reader.GetString(1) };
+        { 
+            var bannedUser = new BannedUser { SteamID = UInt64.Parse(reader.GetString(0)), PlayerName = reader.IsDBNull(1) ? null : reader.GetString(1) };
+            var minutesBanned = reader.GetInt64(2);
+            if (minutesBanned > 0)
+            {
+                var timeRemaining = reader.GetDateTime(3).AddMinutes(minutesBanned) - DateTime.Now;
+                if (timeRemaining < TimeSpan.Zero)
+                {
+                    bannedUser.ServedTheirTime = true;
+                    return bannedUser;
+                }
+            }
+            return bannedUser;
         }
         return null;
     } 
@@ -260,12 +285,14 @@ public class SimpleAdmin : BasePlugin
     {
         public UInt64 SteamID { get; set; }
         public string? PlayerName { get; set; }
+        public bool ServedTheirTime { get; set;  }
 
         public BannedUser() { }
         public BannedUser(CCSPlayerController player) 
         {
             SteamID = player.SteamID;
             PlayerName = player.PlayerName;
+            ServedTheirTime = false;
         }
     }
 }

@@ -4,6 +4,7 @@ using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 
 namespace SimpleAdmin;
@@ -43,7 +44,7 @@ public class SimpleAdmin : BasePlugin
             {
                 return false;
             }
-            Server.PrintToConsole($"{expectedSchema[column, 0]} {reader["name"]} {expectedSchema[column, 1]} {reader["type"]}");
+            Logger.LogInformation($"{expectedSchema[column, 0]} {reader["name"]} {expectedSchema[column, 1]} {reader["type"]}");
             if (expectedSchema[column, 0] != reader["name"].ToString() || expectedSchema[column, 1] != reader["type"].ToString())
             {
                 return false;
@@ -52,7 +53,7 @@ public class SimpleAdmin : BasePlugin
         }
 
 
-        Server.PrintToConsole("Database initialized successfully.");
+        Logger.LogInformation("Database initialized successfully.");
         return true;
     }
 
@@ -66,22 +67,26 @@ public class SimpleAdmin : BasePlugin
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
-        var targetedUsers = command.GetArgTargetResult(1);
-        if (targetedUsers.Players.Count == 1)
+        var targetedUsers = command.GetArgTargetResult(1).Players.Where(p => p is { IsBot: false });
+        if (!targetedUsers.Any()) command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        else if (targetedUsers.Count() > 1) command.ReplyToCommand($"Identifier {command.GetArg(1)} targets more than one person");
+        else if (targetedUsers.Count() == 1)
         {
-            var userToBan = targetedUsers.Players.First();
+            var userToBan = targetedUsers.First();
             if (BanUser(new(userToBan))) Server.ExecuteCommand($"kickid {userToBan.UserId}");
             return;
         }
         var targetString = command.GetArg(1).TrimStart('#');
         if (targetString.Length == 17 && UInt64.TryParse(targetString, out UInt64 steamId))
         { 
-            if (BanUser(new BannedUser { SteamID = steamId }));
-        } command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+            BanUser(new BannedUser { SteamID = steamId });
+            return;
+        } 
+        command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
         command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id>");
     }
     [RequiresPermissions("@css/slay")]
-    [CommandHelper(minArgs: 1, usage: "<user_id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<target>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_slay", "Kill a user")]
     public void OnCommandSlay(CCSPlayerController _, CommandInfo command)
     {
@@ -111,12 +116,20 @@ public class SimpleAdmin : BasePlugin
     } 
 
     [RequiresPermissions("@css/kick")]
-    [CommandHelper(minArgs: 1, usage: "<user_id | username>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<target>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_kick", "Kick a user")]
     public void OnCommandKick(CCSPlayerController _, CommandInfo command)
     {
-        var target = command.GetArgTargetResult(1);
-        if (target.Players.Count == 0)
+        var target = command.GetArgTargetResult(1); 
+        if (!target.Players.Any())
+        { 
+            command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        }
+        else if (target.Players.Count > 1)
+        {
+            command.ReplyToCommand($"Identifier {command.GetArg(1)} targets more than one person");
+        }
+        else if (target.Players.Count == 1)
         { 
             CCSPlayerController? userToKick = target.Players.First();
             if (userToKick != null)
@@ -125,7 +138,6 @@ public class SimpleAdmin : BasePlugin
                 return;
             }
         }
-        command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
         command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target>");
 
     }
@@ -144,9 +156,8 @@ public class SimpleAdmin : BasePlugin
     {
         connectionString = $"Filename={Path.Join(ModuleDirectory, "bans.db")}";
         if (!InitDatabase())
-        {
-            Server.PrintToConsole("Database schema is outdated. Delete your current database (SimpleAdmin/bans.db) or revert to SimpleAdmin v0.0.3.");
-            return;
+        { 
+            throw new Exception("Database schema is outdated. Delete your current database (SimpleAdmin/bans.db) or revert to SimpleAdmin v0.0.3.");
         }
         RegisterListener<Listeners.OnClientConnected>((slot) =>
         {
@@ -154,7 +165,7 @@ public class SimpleAdmin : BasePlugin
             if (IsUserBanned(newPlayer.SteamID) != null)
             {
                 Server.ExecuteCommand($"kickid {newPlayer.UserId}");
-                Server.PrintToConsole($"Banned user {newPlayer.PlayerName} tried to join");
+                Logger.LogInformation($"Banned user {newPlayer.PlayerName} tried to join");
             }
         });
     }
@@ -162,7 +173,7 @@ public class SimpleAdmin : BasePlugin
     {
         if (IsUserBanned(user.SteamID) != null)
         { 
-            Server.PrintToConsole($"{user.PlayerName} is already banned.");
+            Logger.LogInformation($"{user.PlayerName} is already banned.");
             return false; 
         }
         using var db = new SqliteConnection(connectionString);
@@ -180,7 +191,7 @@ public class SimpleAdmin : BasePlugin
         {
             throw new Exception($"Failed to ban user {user.PlayerName} (Steam ID: {user.SteamID})");
         }
-        Server.PrintToConsole($"{user.PlayerName} with Steam ID {user.SteamID} has been banned.");
+        Logger.LogInformation($"{user.PlayerName} with Steam ID {user.SteamID} has been banned.");
         return true;
     }
     private void UnbanUser(BannedUser user)
@@ -198,7 +209,7 @@ public class SimpleAdmin : BasePlugin
         {
             throw new Exception($"Failed to unban user {user.PlayerName} with Steam ID {user.SteamID}");
         }
-        Server.PrintToConsole($"User {user.PlayerName} with Steam ID {user.SteamID} has been unbanned.");
+        Logger.LogInformation($"User {user.PlayerName} with Steam ID {user.SteamID} has been unbanned.");
     }
     private BannedUser? IsUserBanned(CommandInfo command)
     {

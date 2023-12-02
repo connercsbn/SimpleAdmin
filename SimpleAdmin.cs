@@ -178,7 +178,7 @@ public class SimpleAdmin : BasePlugin
                     return;
                 }
                 Server.ExecuteCommand($"kickid {newPlayer.UserId}");
-                Logger.LogInformation($"Banned user {newPlayer.PlayerName} tried to join");
+                Logger.LogInformation("Banned user {username} tried to join", newPlayer.PlayerName);
             }
         });
     }
@@ -186,7 +186,7 @@ public class SimpleAdmin : BasePlugin
     {
         if (IsUserBanned(user.SteamID) != null)
         { 
-            Logger.LogInformation($"{user.PlayerName} is already banned.");
+            Logger.LogInformation("{username} is already banned.", user.PlayerName);
             return false; 
         }
         using var db = new SqliteConnection(connectionString);
@@ -274,7 +274,6 @@ public class SimpleAdmin : BasePlugin
                 if (timeRemaining < TimeSpan.Zero)
                 {
                     bannedUser.ServedTheirTime = true;
-                    return bannedUser;
                 }
             }
             return bannedUser;

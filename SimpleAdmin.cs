@@ -1,10 +1,10 @@
-﻿using CounterStrikeSharp.API.Modules.Commands;
-using CounterStrikeSharp.API;
+﻿using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
+using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Data.Sqlite;
-using CounterStrikeSharp.API.Core.Attributes;
 
 namespace SimpleAdmin;
 
@@ -17,17 +17,43 @@ public class SimpleAdmin : BasePlugin
     private string? connectionString;
 
 
-    private void InitDatabase()
+    private bool InitDatabase()
     {
         using var db = new SqliteConnection(connectionString);
         db.Open();
         using SqliteCommand command = new();
         command.Connection = db;
         command.CommandText = "CREATE TABLE IF NOT EXISTS banned_users (" +
-                              "steam_id UNSIGNED BIG INT PRIMARY KEY, " +
+                              "steam_id TEXT PRIMARY KEY, " +
                               "username TEXT)";
         command.ExecuteNonQuery();
+
+        command.CommandText = "PRAGMA table_info(banned_users);";
+        string[,] expectedSchema = new string[2, 2]
+        {
+            { "steam_id", "TEXT" },
+            { "username", "TEXT" }
+        };
+
+        using SqliteDataReader reader = command.ExecuteReader();
+        int column = 0;
+        while (reader.Read()) 
+        {
+            if (column >= expectedSchema.Length)
+            {
+                return false;
+            }
+            Server.PrintToConsole($"{expectedSchema[column, 0]} {reader["name"]} {expectedSchema[column, 1]} {reader["type"]}");
+            if (expectedSchema[column, 0] != reader["name"].ToString() || expectedSchema[column, 1] != reader["type"].ToString())
+            {
+                return false;
+            }
+            column++;
+        }
+
+
         Server.PrintToConsole("Database initialized successfully.");
+        return true;
     }
 
     public static bool IsValidPlayer(CCSPlayerController? player, bool can_be_bot = false)
@@ -52,8 +78,7 @@ public class SimpleAdmin : BasePlugin
         if (targetString.Length == 17 && ulong.TryParse(targetString, out ulong steamId))
         { 
             BanUser(new BannedUser { SteamID = steamId });
-        }
-        command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        } command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
         command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id>");
     }
     [RequiresPermissions("@css/slay")]
@@ -119,7 +144,11 @@ public class SimpleAdmin : BasePlugin
     public override void Load(bool hotReload) 
     {
         connectionString = $"Filename={Path.Join(ModuleDirectory, "bans.db")}";
-        InitDatabase();
+        if (!InitDatabase())
+        {
+            Server.PrintToConsole("Database schema is outdated. Delete your current database (SimpleAdmin/bans.db) or revert to SimpleAdmin v0.0.3.");
+            return;
+        }
         RegisterListener<Listeners.OnClientConnected>((slot) =>
         {
             CCSPlayerController newPlayer = Utilities.GetPlayerFromSlot(slot);

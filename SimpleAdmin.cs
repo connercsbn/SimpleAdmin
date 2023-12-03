@@ -7,7 +7,6 @@ using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 using System.Data;
-using System.Runtime.InteropServices;
 
 namespace SimpleAdmin;
 
@@ -15,7 +14,7 @@ namespace SimpleAdmin;
 public class SimpleAdmin : BasePlugin
 {
     public override string ModuleName => "SimpleAdmin";
-    public override string ModuleVersion => "0.0.1";
+    public override string ModuleVersion => "0.1.0";
 
     private string? connectionString;
 

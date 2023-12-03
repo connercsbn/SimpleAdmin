@@ -20,6 +20,7 @@ Running `css_players` will print out a list of active players in the form of `Us
 For example:
 
 > 1: ben
+> 
 > 2: TopHATTwaffle
 
 ## css_ban

@@ -32,7 +32,7 @@ Use `SteamID64` to ban someone with that SteamID64 even if they're not in the se
 ## css_unban
 Usage: `css_unban <SteamID64 | username>`
 
-Unban a user identified either by steam_id or username. Username match is partial and case-insensitive. Command fails if multiple users are matched.
+Unban a user identified either by SteamID64 or username. Username match is partial and case-insensitive. Command fails if multiple users are matched.
 
 ## css_kick
 Usage: `css_kick <target>`

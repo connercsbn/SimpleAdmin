@@ -14,7 +14,7 @@ namespace SimpleAdmin;
 public class SimpleAdmin : BasePlugin
 {
     public override string ModuleName => "SimpleAdmin";
-    public override string ModuleVersion => "0.1.0";
+    public override string ModuleVersion => "0.1.1";
 
     private string? connectionString;
 
@@ -143,7 +143,7 @@ public class SimpleAdmin : BasePlugin
     [RequiresPermissions("@css/kick")]
     [CommandHelper(minArgs: 1, usage: "<target>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_kick", "Kick a user")]
-    public void nnCommandKick(CCSPlayerController _, CommandInfo command)
+    public void OnCommandKick(CCSPlayerController _, CommandInfo command)
     {
         var target = command.GetArgTargetResult(1); 
         if (!target.Players.Any())

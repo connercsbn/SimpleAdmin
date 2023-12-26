@@ -2,6 +2,7 @@
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Commands;
+using CounterStrikeSharp.API.Modules.Commands.Targeting;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
 using Microsoft.Extensions.Logging;
@@ -10,7 +11,7 @@ using System.Data;
 
 namespace SimpleAdmin;
 
-[MinimumApiVersion(87)]
+[MinimumApiVersion(132)]
 public class SimpleAdmin : BasePlugin
 {
     public override string ModuleName => "SimpleAdmin";
@@ -64,51 +65,53 @@ public class SimpleAdmin : BasePlugin
     }
 
     [RequiresPermissions("@css/ban")]
-    [CommandHelper(minArgs: 1, usage: "<target | steam id> [minutes]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
+    [CommandHelper(minArgs: 1, usage: "<target | steamID64> [minutes]", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_ban", "Ban a user")]
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
- 
+        List<string> args = command.ArgString.Trim().Split(" ").ToList();
         // get ban length
         ulong minutes = 0;
-        if (command.ArgCount > 2)
+        if (args.Count > 1)
         { 
-            if (ulong.TryParse(command.GetArg(2), out ulong parsedMinutes))
+            if (ulong.TryParse(args[1], out ulong parsedMinutes))
             { 
                 minutes = parsedMinutes;
             } else
             {
                 command.ReplyToCommand("Invalid ban length");
-                command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id> [minutes]");
+                command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steamID64> [minutes]");
                 return;
             }
         } 
 
         // handle banning user in the server (using target)
-        var targetedUsers = command.GetArgTargetResult(1).Players.Where(p => p is { IsBot: false });
+        var targetedUsers = new Target(command.GetArg(0)).GetTarget(command.CallingPlayer).Where(p => p is { IsBot: false });
+
+        
 
         if (targetedUsers.Count() > 1)
         {
-            command.ReplyToCommand($"Identifier {command.GetArg(1)} targets more than one person"); 
-            command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id> [minutes]");
+            command.ReplyToCommand($"Identifier {args[0]} targets more than one person"); 
+            command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steamID64> [minutes]");
             return;
         }
         if (targetedUsers.Count() == 1)
         {
             var userToBan = targetedUsers.First();
-            if (BanUser(new(userToBan), minutes)) Server.ExecuteCommand($"kickid {userToBan.UserId}");
+            if (BanUser(new(userToBan), minutes, command)) Server.ExecuteCommand($"kickid {userToBan.UserId}");
             return;
         }
 
         // handle banning user not in server (using SteamID)
-        var targetString = command.GetArg(1).TrimStart('#');
+        var targetString = args[0].TrimStart('#');
         if (targetString.Length == 17 && UInt64.TryParse(targetString, out UInt64 steamId))
         { 
-            BanUser(new BannedUser { SteamID = steamId }, minutes);
+            BanUser(new BannedUser { SteamID = steamId }, minutes, command);
             return;
-        } else command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
+        } else command.ReplyToCommand($"Couldn't find user by identifier {args[0]}");
 
-        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id>");
+        command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steamID64>");
     }
     [RequiresPermissions("@css/slay")]
     [CommandHelper(minArgs: 1, usage: "<target>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
@@ -196,15 +199,16 @@ public class SimpleAdmin : BasePlugin
                     return;
                 }
                 Server.ExecuteCommand($"kickid {newPlayer.UserId}");
-                Logger.LogInformation("Banned user {username} tried to join", newPlayer.PlayerName);
+                Logger.LogInformation("Banned user {username} tried to join", newPlayer.PlayerName ?? "[unnamed]");
             }
         });
     }
-    private bool BanUser(BannedUser user, ulong minutes)
+    private bool BanUser(BannedUser user, ulong minutes, CommandInfo command)
     {
         if (IsUserBanned(user.SteamID) != null)
         { 
-            Logger.LogInformation("{username} is already banned.", user.PlayerName);
+            Logger.LogInformation("{username} is already banned.", user.PlayerName ?? "[unnamed]");
+            command.ReplyToCommand($"{user.PlayerName ?? "[unnamed]"} is already banned.");
             return false; 
         }
         using var db = new SqliteConnection(connectionString);
@@ -223,7 +227,10 @@ public class SimpleAdmin : BasePlugin
         {
             throw new Exception($"Failed to ban user {user.PlayerName} (Steam ID: {user.SteamID})");
         }
-        Logger.LogInformation($"{user.PlayerName} with Steam ID {user.SteamID} has been banned.");
+        string minuteInfo = minutes > 0 ? $" for {minutes} minutes" : "";
+        minuteInfo = minutes == 1 ? " for 1 minute" : minuteInfo;
+        Logger.LogInformation("{user} with Steam ID {steam_id} has been banned{optional_time_info}.", user.PlayerName ?? "[unnamed]", user.SteamID, minuteInfo);
+        command.ReplyToCommand($"{user.PlayerName ?? "[unnamed]"} with Steam ID {user.SteamID} has been banned{minuteInfo}.");
         return true;
     }
     private void UnbanUser(BannedUser user)
@@ -241,7 +248,7 @@ public class SimpleAdmin : BasePlugin
         {
             throw new Exception($"Failed to unban user {user.PlayerName} with Steam ID {user.SteamID}");
         }
-        Logger.LogInformation($"User {user.PlayerName} with Steam ID {user.SteamID} has been unbanned.");
+        Logger.LogInformation("User {player_name} with Steam ID {steam_id} has been unbanned.", user.PlayerName ?? "[unnamed]", user.SteamID );
     }
     private BannedUser? IsUserBanned(CommandInfo command)
     {

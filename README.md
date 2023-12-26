@@ -10,7 +10,7 @@ It can do:
 ## Installation
 Just extract [package](https://github.com/connercsbn/SimpleAdmin/releases/) to `game/csgo/addons/counterstrikesharp/plugins/` and you should be good to go. 
 
-*Requires CSS v87+*
+*Requires CSS v132+*
 
 ## css_players
 Usage: `css_players`

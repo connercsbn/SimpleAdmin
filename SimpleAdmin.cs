@@ -86,19 +86,14 @@ public class SimpleAdmin : BasePlugin
 
         // handle banning user in the server (using target)
         var targetedUsers = command.GetArgTargetResult(1).Players.Where(p => p is { IsBot: false });
-        if (!targetedUsers.Any())
-        {
-            command.ReplyToCommand($"Couldn't find user by identifier {command.GetArg(1)}");
-            command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id> [minutes]");
-            return;
-        }
-        else if (targetedUsers.Count() > 1)
+
+        if (targetedUsers.Count() > 1)
         {
             command.ReplyToCommand($"Identifier {command.GetArg(1)} targets more than one person"); 
             command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steam_id> [minutes]");
             return;
         }
-        else if (targetedUsers.Count() == 1)
+        if (targetedUsers.Count() == 1)
         {
             var userToBan = targetedUsers.First();
             if (BanUser(new(userToBan), minutes)) Server.ExecuteCommand($"kickid {userToBan.UserId}");
@@ -148,7 +143,7 @@ public class SimpleAdmin : BasePlugin
     [RequiresPermissions("@css/kick")]
     [CommandHelper(minArgs: 1, usage: "<target>", whoCanExecute: CommandUsage.CLIENT_AND_SERVER)]
     [ConsoleCommand("css_kick", "Kick a user")]
-    public void OnCommandKick(CCSPlayerController _, CommandInfo command)
+    public void nnCommandKick(CCSPlayerController _, CommandInfo command)
     {
         var target = command.GetArgTargetResult(1); 
         if (!target.Players.Any())
@@ -272,7 +267,10 @@ public class SimpleAdmin : BasePlugin
         {
             while (reader.Read())
             {
-                if (numResults++ > 0) return null;
+                if (numResults++ > 0)
+                { 
+                    return null;
+                }
                 user = new BannedUser { SteamID = UInt64.Parse(reader.GetString(0)), PlayerName = reader.GetString(1) };
                 return user;
             }

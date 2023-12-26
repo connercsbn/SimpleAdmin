@@ -70,9 +70,14 @@ public class SimpleAdmin : BasePlugin
     public void OnCommandBan(CCSPlayerController _, CommandInfo command)
     {
         List<string> args = command.ArgString.Trim().Split(" ").ToList();
-        // get ban length
+        if (args.Count == 0)
+        { 
+            command.ReplyToCommand($"[CSS] Expected usage: {command.GetArg(0)} <target | steamID64> [minutes]");
+            return;
+        };
         ulong minutes = 0;
         if (args.Count > 1)
+        // get ban length
         { 
             if (ulong.TryParse(args[1], out ulong parsedMinutes))
             { 
@@ -86,7 +91,7 @@ public class SimpleAdmin : BasePlugin
         } 
 
         // handle banning user in the server (using target)
-        var targetedUsers = new Target(command.GetArg(0)).GetTarget(command.CallingPlayer).Where(p => p is { IsBot: false });
+        var targetedUsers = new Target(args[0]).GetTarget(command.CallingPlayer).Where(p => p is { IsBot: false });
 
         
 

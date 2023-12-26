@@ -15,7 +15,7 @@ namespace SimpleAdmin;
 public class SimpleAdmin : BasePlugin
 {
     public override string ModuleName => "SimpleAdmin";
-    public override string ModuleVersion => "0.1.1";
+    public override string ModuleVersion => "0.1.2";
 
     private string? connectionString;
 
